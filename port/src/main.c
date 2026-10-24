@@ -478,7 +478,7 @@ static int platform_init(void) {
     if (show_startup_menu && strcmp(SDL_GetCurrentVideoDriver(), "dummy")) {
         for (;;) {
             int action = a2_host_game_menu(1, 0, a2_native_save_enabled());
-            if (action == A2_MENU_QUIT) return 0;
+            if (action == A2_MENU_QUIT) exit(0);
             if (action != A2_MENU_LOAD || stage_startup_load()) break;
             /* Cancel/error returns to the launcher, before any guest boot. */
         }
