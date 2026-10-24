@@ -1,3 +1,4 @@
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <assert.h>
 #include <stdio.h>
@@ -7,6 +8,28 @@
 #include <unistd.h>
 #include "settings.h"
 #include "paths.h"
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+#include <direct.h>
+static FILE *utf8_fopen(const char *path,const char *mode) {
+    wchar_t *p=a2w_utf16(path),*m=a2w_utf16(mode);
+    FILE *f=p&&m?_wfopen(p,m):NULL;free(p);free(m);return f;
+}
+static int utf8_rename(const char *from,const char *to) {
+    wchar_t *a=a2w_utf16(from),*b=a2w_utf16(to);
+    int r=a&&b?_wrename(a,b):-1;free(a);free(b);return r;
+}
+static int utf8_unlink(const char *path) {wchar_t *p=a2w_utf16(path);int r=p?_wunlink(p):-1;free(p);return r;}
+static int utf8_mkdir(const char *path,int mode) {(void)mode;wchar_t *p=a2w_utf16(path);int r=p?_wmkdir(p):-1;free(p);return r;}
+static int utf8_rmdir(const char *path) {wchar_t *p=a2w_utf16(path);int r=p?_wrmdir(p):-1;free(p);return r;}
+#define fopen utf8_fopen
+#define rename utf8_rename
+#define unlink utf8_unlink
+#define mkdir utf8_mkdir
+#define rmdir utf8_rmdir
+#define SDL_setenv a2w_setenv
+#define unsetenv(name) a2w_setenv(name,NULL,1)
+#endif
 
 int gpu_frames;
 static int actual_ir=3;
@@ -45,6 +68,10 @@ static void change_ir(int delta) {
 }
 
 int main(void) {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR);
+#endif
+    SDL_SetMainReady();
     assert(SDL_getenv("A2_USER_DIR")); /* runner owns the temporary directory */
     (void)a2_paths_init(NULL, NULL);
     assert(a2_paths.settings[0]);

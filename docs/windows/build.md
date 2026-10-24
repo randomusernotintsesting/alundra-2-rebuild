@@ -5,6 +5,22 @@ complete game compatibility. Qualification results are delivered separately;
 the commands below are build/packaging instructions, not evidence of a pass.
 Use a native Windows x64 machine for Windows qualification, not Linux or Wine.
 
+## Windows storage qualification
+
+Build the `test_storage_windows`, `test_memcard_windows`, `test_settings`,
+`test_launch_profile`, `test_text_raster`, and `test_phase_timing` targets, then
+run CTest with `-R '^(storage_windows|memcard|settings|launch_profile|text_raster|phase_timing)$'`.
+The storage runners use disposable Unicode directories and independent synthetic
+save/card bytes; no game data or personal save is needed.
+
+Windows storage pins directory ancestors without delete sharing, rejects reparse
+points and hardlinked files, creates exclusive random temporary files, and
+publishes using a handle-based rename. A post-publication flush/close failure is
+reported as published-but-uncertain, not as an unchanged destination. There is no
+portable Windows equivalent of POSIX directory fsync: file flushing and successful
+rename do not establish directory-entry durability under power loss. The native
+test fault-injects a post-publication failure; it is not a power-loss experiment.
+
 ## Inputs and toolchain
 
 - CMake 3.27+, Python 3.9+, and MinGW-w64 GCC/G++ (C11/C++11).
@@ -67,6 +83,26 @@ Use paths containing spaces and Cyrillic, a fresh disposable `A2_USER_DIR`,
 and `A2_RESOURCE_ARCHIVE` pointing to the privately held runtime archive.
 Check missing-data diagnostics separately with the archive environment unset.
 The archive need not be adjacent to the executable. No personal save is needed.
+
+## Normal Windows launch profile
+
+The executable itself applies the applicable shared app-profile defaults before
+startup, not only in a test launcher: `A2_LOCAL_POSE=1`, `A2_COLOR_PRECISION=1`,
+`A2_PRECISE_CULL=2`, `A2_WORLD_CAMERA=1`, `A2_WORLD_PERSPECTIVE=1`,
+`A2_WORLD_PRECISION=1`, and `A2_WORLD_RASTER=1`. Existing environment values are
+retained as explicit overrides. The effective values and default/override origin
+are written to stderr on every launch; preserve this output with the exact
+source commit in qualification evidence. Defaults are set in both the executable's
+C runtime and Windows process environment. Separate DLL CRT environment caches
+are not assumed to be synchronized by a Windows API call alone.
+
+`A2_COLOR_CONTINUITY`, `A2_MODEL_DEPTH`, `A2_MODEL_MINIFY`, and `A2_WORLD_DEPTH`
+are not claimed active: in this source snapshot their execution depends on the
+Apple-scoped native-mesh/packet-observer initialization or compile definitions.
+`A2_FINE_PARALLEL`, `A2_GPU_FINE`, and `A2_GPU_PRESENT` are also unavailable on
+Windows. None of these seven switches is enabled by the Windows profile; an
+inherited request is logged as unavailable, not treated as feature parity.
+No personal user directory or resource archive is copied from the app profile.
 
 ## Qualification boundaries
 

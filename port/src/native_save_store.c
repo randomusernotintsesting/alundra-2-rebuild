@@ -8,12 +8,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+typedef A2WDirectory *SaveDirectory;
+#define close_directory a2w_directory_close
+#else
 #include <sys/file.h>
+typedef int SaveDirectory;
+#define close_directory close
+#endif
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-#ifdef A2_SAVE_STORE_TESTING
+#if defined(A2_SAVE_STORE_TESTING) && !defined(_WIN32)
 extern int a2_save_test_directory_fsync(int fd);
 extern void a2_save_test_before_publish(int directory, const char *name);
 #define directory_fsync a2_save_test_directory_fsync
@@ -66,6 +74,15 @@ static int validate_payload(const uint8_t *p, A2SaveMetadata *meta, char *error,
     return 1;
 }
 
+#ifdef _WIN32
+#define Target A2WTarget
+static int open_target(const char *path, struct Target *t, char *error, size_t n) {
+    return a2w_target(path,t) || fail(error,n,"Cannot open a safe UTF-8 save path (Windows error %lu)",GetLastError());
+}
+static int read_exact_file(SaveDirectory dir,const char *name,uint8_t *bytes,size_t length,char *error,size_t n) {
+    return a2w_read(dir,name,bytes,length) || fail(error,n,"Cannot read regular single-link %s of %zu bytes (Windows error %lu)",name,length,GetLastError());
+}
+#else
 struct Target { int dir; char parent[PATH_MAX], name[NAME_MAX + 1]; };
 static int open_target(const char *path, struct Target *t, char *error, size_t n) {
     t->dir = -1;
@@ -104,7 +121,8 @@ static int read_exact_file(int dir, const char *name, uint8_t *bytes, size_t len
     if (close(fd) && ok) ok = fail(error, n, "Cannot close %s after reading", name);
     return ok;
 }
-static int read_at(int dir, const char *name, uint8_t *payload,
+#endif
+static int read_at(SaveDirectory dir, const char *name, uint8_t *payload,
                     A2SaveMetadata *meta, char *error, size_t n) {
     uint8_t bytes[A2_SAVE_HEADER_SIZE + A2_SAVE_PAYLOAD_SIZE];
     if (!read_exact_file(dir, name, bytes, sizeof bytes, error, n)) return 0;
@@ -134,9 +152,43 @@ int a2_save_read(const char *path, uint8_t payload[A2_SAVE_PAYLOAD_SIZE],
     struct Target t;
     if (!open_target(path, &t, error, error_size)) return 0;
     int ok = read_at(t.dir, t.name, payload, metadata, error, error_size);
-    close(t.dir); return ok;
+    close_directory(t.dir); return ok;
 }
 
+#ifdef _WIN32
+static int write_save(const char *path,const uint8_t *payload,int import,int new_only,char *error,size_t n) {
+    if(error&&n)error[0]=0;
+    A2SaveMetadata meta;
+    if(!validate_payload(payload,&meta,error,n))return 0;
+    if(import&&meta.location_index==A2_SAVE_FREE_LOCATION)return fail(error,n,"Unsupported original card location");
+    struct Target t;if(!open_target(path,&t,error,n))return 0;
+    char lockname[1040];snprintf(lockname,sizeof lockname,"%s.lock",t.name);
+    HANDLE lock=a2w_lock(t.dir,lockname);int ok=0;
+    if(lock==INVALID_HANDLE_VALUE){fail(error,n,"Save is busy or its private lock is unsafe");goto done;}
+    int exists=a2w_exists(t.dir,t.name);
+    if(exists<0){fail(error,n,"Save target is unsafe or inaccessible");goto done;}
+    if(exists&&new_only){fail(error,n,"New save already exists; existing save preserved");goto done;}
+    if(exists&&import){
+        uint8_t previous[A2_SAVE_PAYLOAD_SIZE];
+        if(!read_at(t.dir,t.name,previous,NULL,error,n))goto done;
+        if(memcmp(previous,payload,sizeof previous)){fail(error,n,"Import filename collision; existing save preserved");goto done;}
+        ok=1;goto done;
+    }
+    uint8_t bytes[A2_SAVE_HEADER_SIZE+A2_SAVE_PAYLOAD_SIZE]={0};
+    time_t now=time(NULL);if(now<0){fail(error,n,"Cannot read UTC time");goto done;}
+    memcpy(bytes,magic,sizeof magic);
+    wr32(bytes+8,meta.location_index==A2_SAVE_FREE_LOCATION?A2_SAVE_FREE_VERSION:A2_SAVE_VERSION);
+    wr32(bytes+12,A2_SAVE_HEADER_SIZE);wr32(bytes+16,A2_SAVE_PAYLOAD_SIZE);wr32(bytes+20,meta.payload_crc32);
+    for(unsigned i=0;i<8;i++)bytes[24+i]=(uint8_t)((uint64_t)now>>(i*8));
+    memcpy(bytes+32,game,sizeof game);memcpy(bytes+A2_SAVE_HEADER_SIZE,payload,A2_SAVE_PAYLOAD_SIZE);
+    ok=a2w_publish(t.dir,t.name,bytes,sizeof bytes,new_only||import);
+    if(!ok)fail(error,n,"Cannot publish save; existing files preserved (Windows error %lu)",GetLastError());
+    if(ok==A2_SAVE_PUBLISHED_UNCERTAIN)fail(error,n,"Save was published, but post-publication sync/close failed");
+done:
+    if(lock!=INVALID_HANDLE_VALUE)CloseHandle(lock);
+    close_directory(t.dir);return ok;
+}
+#else
 static int write_save(const char *path, const uint8_t *payload, int import, int new_only,
                        char *error, size_t n) {
     if (error && n) error[0] = 0;
@@ -149,7 +201,7 @@ static int write_save(const char *path, const uint8_t *payload, int import, int 
     int ok = 0, lock = -1, fd = -1;
     char lockname[NAME_MAX + 1], tmp[PATH_MAX] = {0};
     char *tmpname = NULL;
-    snprintf(lockname, sizeof lockname, "%s.lock", t.name);
+    snprintf(lockname, sizeof lockname, "%.*s.lock", (int)sizeof lockname - 6, t.name);
     lock = openat(t.dir, lockname, O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
     struct stat st;
     if (lock < 0 || fstat(lock, &st) || !S_ISREG(st.st_mode) || st.st_nlink != 1) {
@@ -237,9 +289,14 @@ done:
     return ok;
 }
 
+#endif
 static int is_import_snapshot(const char *path) {
     if (!path) return 0;
     const char *name = strrchr(path, '/');
+#ifdef _WIN32
+    const char *backslash = strrchr(path, '\\');
+    if (backslash && (!name || backslash > name)) name = backslash;
+#endif
     name = name ? name + 1 : path;
     /* Case-insensitive aliases can resolve to the same imported inode on
      * macOS. Reserve the whole canonical shape, including those aliases. */
@@ -273,25 +330,42 @@ int a2_save_import_cards(const char *user_directory, const char *saves_directory
     if (error && error_size) error[0] = 0;
     if (!user_directory || !*user_directory || !saves_directory || !*saves_directory)
         return fail(error, error_size, "Missing import directory");
+#ifdef _WIN32
+    SaveDirectory source=a2w_directory(user_directory,0);
+    if(!source)return fail(error,error_size,"Cannot open safe memory-card directory");
+#else
     int source = open(user_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (source < 0) return fail(error, error_size, "Cannot open memory-card directory: %s", strerror(errno));
+#endif
     int ok = 0, published_uncertain = 0;
     char warning[512] = {0};
+#ifdef _WIN32
+    A2WDirectory *destination=a2w_directory(saves_directory,1);
+    if(!destination){fail(error,error_size,"Cannot create safe save directory");goto done;}
+    a2w_directory_close(destination);
+#else
     if (mkdir(saves_directory, 0700) && errno != EEXIST) {
         fail(error, error_size, "Cannot create save directory: %s", strerror(errno)); goto done;
     }
     int destination = open(saves_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (destination < 0) { fail(error, error_size, "Cannot open import destination directory"); goto done; }
     close(destination);
+#endif
     uint8_t *bytes = malloc(131072);
     if (!bytes) { fail(error, error_size, "Not enough memory to import card"); goto done; }
     for (unsigned slot = 1; slot <= 2; slot++) {
         char cardname[32]; snprintf(cardname, sizeof cardname, "memcard%u.mcr", slot);
+#ifdef _WIN32
+        int exists=a2w_exists(source,cardname);
+        if(!exists)continue;
+        if(exists<0){fail(error,error_size,"Cannot inspect safe %s",cardname);goto free_card;}
+#else
         struct stat st;
         if (fstatat(source, cardname, &st, AT_SYMLINK_NOFOLLOW)) {
             if (errno == ENOENT) continue;
             fail(error, error_size, "Cannot inspect %s: %s", cardname, strerror(errno)); goto free_card;
         }
+#endif
         if (!read_exact_file(source, cardname, bytes, 131072, error, error_size)) goto free_card;
         if (memcmp(bytes, "MC", 2) || !checksum_ok(bytes)) {
             fail(error, error_size, "%s has an invalid memory-card header", cardname); goto free_card;
@@ -334,7 +408,7 @@ int a2_save_import_cards(const char *user_directory, const char *saves_directory
 free_card:
     free(bytes);
 done:
-    close(source); return ok;
+    close_directory(source); return ok;
 }
 
 int a2_save_write_new(const char *path, const uint8_t payload[A2_SAVE_PAYLOAD_SIZE],

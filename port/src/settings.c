@@ -15,6 +15,13 @@
 #include <unistd.h>
 #include "settings.h"
 #include "paths.h"
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+#define SDL_setenv a2w_setenv
+#define settings_fopen(path, mode) a2w_fopen(path,L"rb")
+#else
+#define settings_fopen fopen
+#endif
 #include "font8x8.h"
 #ifdef A2_CINEMA_EXPANSION
 #include "cinema_gpu.h"
@@ -91,9 +98,9 @@ void settings_load(void) {
     a2_input_default_pad(a2s.pad);
     memcpy(a2s.key, DEFKEY, sizeof DEFKEY);
 
-    FILE *f = fopen(ini_path(), "r");
+    FILE *f = settings_fopen(ini_path(), "r");
     if (!f && a2_paths.legacy_settings[0])
-        f = fopen(a2_paths.legacy_settings, "r");
+        f = settings_fopen(a2_paths.legacy_settings, "r");
     if (f) {
         char line[256], k[64]; int v;
         while (fgets(line, sizeof line, f)) {
@@ -173,12 +180,18 @@ void settings_load(void) {
     if (a2s.irscale < 1) a2s.irscale = 1;
     if (a2s.irscale > 4) a2s.irscale = 4;
     if (getenv("A2_MENU")) settings_menu_open = 1;   /* debug: open at boot */
-    FILE *probe = fopen(ini_path(), "r");
+    FILE *probe = settings_fopen(ini_path(), "r");
     if (probe) fclose(probe);
     else settings_save();          /* materialize defaults on first run */
 }
 
 void settings_save(void) {
+#ifdef _WIN32
+    A2WTarget target; HANDLE file; FILE *f;
+    if(!a2w_atomic_stream(ini_path(),&target,&file,&f)){
+        fprintf(stderr,"Cannot save settings: %s\n",ini_path());return;
+    }
+#else
     char tmp[4096];
     if (snprintf(tmp, sizeof tmp, "%s.tmp.XXXXXX", ini_path()) >= (int)sizeof tmp) return;
     /* Each process owns its temporary inode until the atomic replacement. */
@@ -191,6 +204,7 @@ void settings_save(void) {
         fprintf(stderr, "Cannot save settings: %s\n", ini_path());
         return;
     }
+#endif
     fprintf(f, "window_w=%d\nwindow_h=%d\nfullscreen=%d\n"
             "wide=%d\nirscale=%d\nfilter=%d\nsound=%d\n",
             a2s.window_w, a2s.window_h, a2s.fullscreen,
@@ -208,10 +222,17 @@ void settings_save(void) {
         fprintf(f,"pad_%d_%d_kind=%d\npad_%d_%d_code=%d\n",
             bit,slot,a2s.pad[bit][slot].kind,bit,slot,a2s.pad[bit][slot].code);
     int failed = ferror(f);
+#ifdef _WIN32
+    int result=a2w_commit_stream(&target,file,f,failed);
+    if(result==2)fprintf(stderr,"Settings published, but post-publication sync/close failed\n");
+    if(result)return;
+    fprintf(stderr,"Cannot save settings: %s\n",ini_path());
+#else
     if (fclose(f)) failed = 1;
     if (!failed && rename(tmp, ini_path()) == 0) return;
     fprintf(stderr, "Cannot save settings: %s\n", ini_path());
     remove(tmp);
+#endif
 }
 
 /* ---------------- runtime apply ---------------- */

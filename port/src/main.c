@@ -13,6 +13,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include "launch_profile.h"
 #endif
 #include <SDL.h>
 #include "psx_rt.h"
@@ -1563,6 +1564,7 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     (void)argc; (void)argv;
     SDL_SetMainReady();
+    if (!a2_windows_launch_profile(stderr)) return 1;
     int count = 0, result = 1;
     wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
     if (!wide || count < 1) {

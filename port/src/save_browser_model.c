@@ -3,7 +3,11 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "save_browser_model.h"
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+#else
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -204,6 +208,16 @@ int a2_save_browser_open(A2SaveBrowser *browser, const char *user_directory,
     if (!opened.directory) return fail(error, error_size, "Cannot allocate save-directory path");
     opened.import_result = a2_save_import_cards(user_directory, opened.directory,
                                                opened.import_warning, sizeof opened.import_warning);
+#ifdef _WIN32
+    A2WDirectory *directory=a2w_directory(opened.directory,0);
+    char **names=NULL;size_t name_count=0,name_index=0;
+    if(!directory || !a2w_list(directory,&names,&name_count)){
+        for(size_t i=0;i<name_count;i++)free(names[i]);
+        free(names);
+        a2w_directory_close(directory);a2_save_browser_dispose(&opened);
+        return fail(error,error_size,"Cannot enumerate safe save directory");
+    }
+#else
     int descriptor = open(opened.directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     DIR *directory = descriptor < 0 ? NULL : fdopendir(descriptor);
     if (!directory) {
@@ -211,6 +225,7 @@ int a2_save_browser_open(A2SaveBrowser *browser, const char *user_directory,
         a2_save_browser_dispose(&opened);
         return fail(error, error_size, "Cannot open save directory");
     }
+#endif
     int ok = 1;
     if (opened.saving) {
         A2SaveBrowserRow row = {0}; row.valid = row.fresh = 1;
@@ -220,21 +235,27 @@ int a2_save_browser_open(A2SaveBrowser *browser, const char *user_directory,
         }
     }
     while (ok) {
+#ifdef _WIN32
+        if(name_index==name_count)break;
+        const char *entry_name=names[name_index++];
+#else
         errno = 0;
         struct dirent *entry = readdir(directory);
         if (!entry) {
             if (errno) ok = fail(error, error_size, "Cannot read save-directory entries");
             break;
         }
-        size_t length = strlen(entry->d_name);
+        const char *entry_name=entry->d_name;
+#endif
+        size_t length = strlen(entry_name);
         if (length < strlen(A2_SAVE_EXTENSION) ||
-            strcasecmp(entry->d_name + length - strlen(A2_SAVE_EXTENSION), A2_SAVE_EXTENSION)) continue;
+            strcasecmp(entry_name + length - strlen(A2_SAVE_EXTENSION), A2_SAVE_EXTENSION)) continue;
         A2SaveBrowserRow row = {0};
-        row.filename = strdup(entry->d_name); row.path = join_path(opened.directory, entry->d_name);
+        row.filename = strdup(entry_name); row.path = join_path(opened.directory, entry_name);
         if (!row.filename || !row.path) {
             dispose_row(&row); ok = fail(error, error_size, "Cannot allocate save-list path"); break;
         }
-        row.imported = imported_name(entry->d_name);
+        row.imported = imported_name(entry_name);
         uint8_t payload[A2_SAVE_PAYLOAD_SIZE]; char detail[1024];
         row.valid = a2_save_read(row.path, payload, &row.metadata, detail, sizeof detail);
         if (row.valid) {
@@ -245,7 +266,13 @@ int a2_save_browser_open(A2SaveBrowser *browser, const char *user_directory,
             dispose_row(&row); ok = fail(error, error_size, "Cannot allocate save-list row");
         }
     }
+#ifdef _WIN32
+    for(size_t i=0;i<name_count;i++)free(names[i]);
+    free(names);
+    a2w_directory_close(directory);
+#else
     if (closedir(directory) && ok) ok = fail(error, error_size, "Cannot close save directory");
+#endif
     if (!ok) { a2_save_browser_dispose(&opened); return 0; }
     if (opened.count > 1) qsort(opened.rows, opened.count, sizeof *opened.rows, row_order);
     *browser = opened;
@@ -255,7 +282,11 @@ int a2_save_browser_open(A2SaveBrowser *browser, const char *user_directory,
 static int fresh_name(char name[44], char *error, size_t error_size) {
     /* Entropy names avoid collisions; the store's no-replace publication is
      * the actual protection for existing saves, including racing writers. */
-    uint8_t bytes[16]; size_t offset = 0;
+    uint8_t bytes[16];
+#ifdef _WIN32
+    if(!a2w_random(bytes,sizeof bytes))return fail(error,error_size,"Cannot generate secure save-filename entropy");
+#else
+    size_t offset = 0;
     int descriptor = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
     if (descriptor < 0) return fail(error, error_size, "Cannot generate a new save filename");
     while (offset < sizeof bytes) {
@@ -265,6 +296,7 @@ static int fresh_name(char name[44], char *error, size_t error_size) {
         offset += (size_t)got;
     }
     if (close(descriptor)) return fail(error, error_size, "Cannot close save-filename entropy source");
+#endif
     bytes[6] = (bytes[6] & 15) | 0x40; bytes[8] = (bytes[8] & 63) | 0x80;
     snprintf(name, 44, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x.a2save",
              bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -341,7 +373,8 @@ static int starts_with(const char *text, const char *prefix) {
 }
 int a2_save_browser_durability_warning(const char *message) {
     return starts_with(message, "Save was published, but directory sync failed:") ||
-           starts_with(message, "Save was published, but temporary cleanup failed:");
+           starts_with(message, "Save was published, but temporary cleanup failed:") ||
+           starts_with(message, "Save was published, but post-publication sync/close failed");
 }
 void a2_save_browser_error_text(const char *message, int language, char *out, size_t size) {
     if (!out || !size) return;
