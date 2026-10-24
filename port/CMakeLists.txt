@@ -106,7 +106,7 @@ if(WIN32)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     target_sources(a2_host_sdl PRIVATE src/platform/text_windows.cpp
         src/platform/host_ui_sdl.c src/subtitle_panel.c src/voice_subtitles.c)
-    target_link_libraries(alundra2 PRIVATE dwrite windowscodecs ole32 gdi32)
+    target_link_libraries(alundra2 PRIVATE dwrite windowscodecs ole32 gdi32 shell32)
     set_property(SOURCE src/main.c APPEND PROPERTY COMPILE_DEFINITIONS A2_VOICE_SUBTITLES=1)
     set_property(SOURCE src/main.c src/settings.c APPEND PROPERTY COMPILE_DEFINITIONS A2_NATIVE_MENU=1)
     if(MINGW)

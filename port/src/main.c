@@ -10,6 +10,9 @@
 #include <string.h>
 #ifdef _WIN32
 #define SDL_MAIN_HANDLED
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
 #endif
 #include <SDL.h>
 #include "psx_rt.h"
@@ -1485,10 +1488,7 @@ static int atlas(const char *root, const char *shot) {
     return 0;
 }
 
-int main(int argc, char **argv) {
-#ifdef _WIN32
-    SDL_SetMainReady();
-#endif
+static int run(int argc, char **argv) {
     const char *root = NULL;
     const char *image = NULL, *shot = NULL;
     int do_atlas = 0, check = 0;
@@ -1557,4 +1557,37 @@ int main(int argc, char **argv) {
     a2_input_shutdown();
     SDL_Quit();
     return result;
+}
+
+int main(int argc, char **argv) {
+#ifdef _WIN32
+    (void)argc; (void)argv;
+    SDL_SetMainReady();
+    int count = 0, result = 1;
+    wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!wide || count < 1) {
+        if (wide) LocalFree(wide);
+        fprintf(stderr, "Cannot decode Windows command line\n");
+        return 1;
+    }
+    char **utf8 = calloc((size_t)count + 1, sizeof *utf8);
+    int complete = utf8 != NULL;
+    for (int i = 0; complete && i < count; i++) {
+        int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[i], -1,
+                                        NULL, 0, NULL, NULL);
+        utf8[i] = bytes ? malloc((size_t)bytes) : NULL;
+        complete = utf8[i] && WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+            wide[i], -1, utf8[i], bytes, NULL, NULL);
+    }
+    if (complete) result = run(count, utf8);
+    else fprintf(stderr, "Cannot convert Windows command line to UTF-8\n");
+    if (utf8) {
+        for (int i = 0; i < count; i++) free(utf8[i]);
+        free(utf8);
+    }
+    LocalFree(wide);
+    return result;
+#else
+    return run(argc, argv);
+#endif
 }
