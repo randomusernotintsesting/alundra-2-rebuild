@@ -407,9 +407,12 @@ void platform_show_game_menu(void) {
     int action = a2_host_game_menu(0, a2_native_quick_save_available(),
                                       a2_native_quick_load_available());
     settings_menu_open = 0;
+    if (action == A2_MENU_QUIT) {
+        settings_save();
+        exit(0);
+    }
     settings_apply_changes();
     native_dialog_end();
-    if (action == A2_MENU_QUIT) exit(0);
     if (action == A2_MENU_SAVE_SLOT || action == A2_MENU_LOAD_SLOT) {
         if (!a2_native_request_save_action(action == A2_MENU_SAVE_SLOT))
             platform_native_save_error("Сейчас это действие недоступно. Вернитесь к обычной игре и повторите попытку.");

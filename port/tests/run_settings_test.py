@@ -2,11 +2,15 @@
 import argparse
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 
 def main():
+    if os.name == "nt":
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
