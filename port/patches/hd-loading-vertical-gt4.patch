@@ -1,0 +1,21 @@
+--- a/port/src/gpu.c
++++ b/port/src/gpu.c
+@@ -1222,6 +1222,18 @@
+ #endif
+ #endif
+         }
++#ifdef A2_HD_ART
++        /* Resident loading GT4s use vertical-first XY and matching UV axes.
++           Keep this extension limited to exact-source artwork. */
++        else if(tex && quad && v[0].x==v[1].x && v[2].x==v[3].x &&
++                v[0].y==v[2].y && v[1].y==v[3].y &&
++                v[0].u==v[1].u && v[2].u==v[3].u &&
++                v[0].v==v[2].v && v[1].v==v[3].v) {
++            int u0=v[0].u<v[3].u?v[0].u:v[3].u,u1=v[0].u>v[3].u?v[0].u:v[3].u;
++            int v0=v[0].v<v[3].v?v[0].v:v[3].v,v1=v[0].v>v[3].v?v[0].v:v[3].v;
++            prepare_hd_art(u0,v0,u1,v1);
++        }
++#endif
+ #endif
+ #ifdef A2_WORLD_PRECISION
+         WorldFinePoint fine_points[4];

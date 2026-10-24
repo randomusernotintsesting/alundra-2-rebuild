@@ -1,0 +1,43 @@
+/* Edge search and subpixel reconstruction following the FXAA method described
+ * by Timothy Lottes, NVIDIA, FXAA White Paper (2011):
+ * https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf
+ * Host display colors are already encoded; luma/edge decisions use that space.
+ * This is spatial post-AA, not multisampling of guest polygons. */
+static NSString *const a2_fxaa_source=@
+"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"constexpr sampler smp(coord::normalized,address::clamp_to_edge,filter::linear);\n"
+"float lum(float3 c){return dot(c,float3(.299,.587,.114));}\n"
+"float luma(texture2d<float> t,float2 uv){return lum(t.sample(smp,uv).rgb);}\n"
+"kernel void antialias(texture2d<float> t [[texture(0)]],device uint *out [[buffer(0)]],uint2 p [[thread_position_in_grid]]){\n"
+" uint2 size=uint2(t.get_width(),t.get_height());if(any(p>=size))return;\n"
+" float2 inv=1.0/float2(size),uv=(float2(p)+.5)*inv;float4 original=t.read(p);\n"
+" float3 color=original.rgb;float m=lum(color),n=luma(t,uv+float2(0,-inv.y)),s=luma(t,uv+float2(0,inv.y));\n"
+" float w=luma(t,uv+float2(-inv.x,0)),e=luma(t,uv+float2(inv.x,0));\n"
+" float lo=min(m,min(min(n,s),min(w,e))),hi=max(m,max(max(n,s),max(w,e))),range=hi-lo;\n"
+" if(range>=max(1.0/32.0,hi*.125)){\n"
+"  float nw=luma(t,uv-inv),ne=luma(t,uv+float2(inv.x,-inv.y));\n"
+"  float sw=luma(t,uv+float2(-inv.x,inv.y)),se=luma(t,uv+inv);\n"
+"  float horizontal=abs(nw+sw-2*w)+2*abs(n+s-2*m)+abs(ne+se-2*e);\n"
+"  float vertical=abs(nw+ne-2*n)+2*abs(w+e-2*m)+abs(sw+se-2*s);\n"
+"  bool h=horizontal>=vertical;float a=h?n:w,b=h?s:e;\n"
+"  bool negative=abs(a-m)>=abs(b-m);float neighbor=negative?a:b;\n"
+"  float average=.5*(m+neighbor),gradient=.25*abs(neighbor-m);\n"
+"  float2 normal=h?float2(0,inv.y):float2(inv.x,0);if(negative)normal=-normal;\n"
+"  float2 tangent=h?float2(inv.x,0):float2(0,inv.y);float2 center=uv+.5*normal;\n"
+"  float da=1,db=1,la=luma(t,center-tangent)-average,lb=luma(t,center+tangent)-average;\n"
+"  bool doneA=abs(la)>=gradient,doneB=abs(lb)>=gradient;\n"
+"  constexpr float steps[10]={1,1.5,2,2,2,2,2,4,8,8};\n"
+"  for(uint i=0;i<10&&!(doneA&&doneB);i++){\n"
+"   if(!doneA){da+=steps[i];la=luma(t,center-da*tangent)-average;doneA=abs(la)>=gradient;}\n"
+"   if(!doneB){db+=steps[i];lb=luma(t,center+db*tangent)-average;doneB=abs(lb)>=gradient;}\n"
+"  }\n"
+"  float end=da<db?la:lb;bool resolved=da<db?doneA:doneB;\n"
+"  float edge=resolved&&((end<0)!=(m-average<0))?.5-min(da,db)/(da+db):0;\n"
+"  float sub=clamp(abs((2*(n+s+w+e)+nw+ne+sw+se)/12-m)/range,0.0,1.0);\n"
+"  sub=sub*sub*(3-2*sub);sub=sub*sub*.65;\n"
+"  color=t.sample(smp,uv+max(edge,sub)*normal).rgb;\n"
+" }\n"
+" uint4 c=uint4(round(clamp(float4(color,original.a),0.0,1.0)*255));\n"
+" out[p.y*size.x+p.x]=c.b|(c.g<<8)|(c.r<<16)|(c.a<<24);\n"
+"}\n";

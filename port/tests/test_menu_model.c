@@ -1,0 +1,75 @@
+#include "menu_model.h"
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+int main(void) {
+    A2Settings a={0};a.wide=1;a.irscale=4;a.sound=1;a.master_volume=100;a.pad_deadzone=16384;
+    a.text_language=0;a.voice_language=1;a.key[14]=SDL_SCANCODE_X;a.key[13]=SDL_SCANCODE_C;
+    a.hd_models=1;
+    A2Settings original=a,out;memset(&out,0x7c,sizeof out);A2Settings untouched=out;
+    A2MenuModel m;a2_menu_model_init(&m,&a,1,0,0,5,2);
+    assert(!a2_menu_model_finish(&m,A2_MENU_LOAD,&out));
+    m.can_load=1;
+    assert(a2_menu_model_finish(&m,A2_MENU_LOAD,&out));
+    m.draft.voice_language=0;
+    assert(!a2_menu_model_finish(&m,A2_MENU_LOAD,&out));
+    m.draft.voice_language=1;
+    assert(a2_menu_model_available(&m));
+    assert(!a2_menu_model_change(&m,A2_MENU_MODELS,1));
+    assert(!memcmp(&m.draft,&original,sizeof original));
+    assert(!a2_menu_model_change(&m,A2_MENU_MODELS,0));
+    assert(a2_menu_model_finish(&m,A2_MENU_QUIT,&out));assert(out.hd_models==1);
+    assert(a2_menu_model_finish(&m,A2_MENU_RESUME,&out));assert(!memcmp(&out,&original,sizeof out));
+    assert(!a2_menu_model_change(&m,A2_MENU_MODELS,-1));assert(m.draft.hd_models==1);
+    out=untouched;
+    assert(a2_menu_model_change(&m,A2_MENU_TEXT,1));assert(m.draft.text_language==2);
+    assert(!memcmp(&a,&original,sizeof a));
+    assert(!a2_menu_model_key(&m,14,SDL_SCANCODE_F5));
+    assert(!a2_menu_model_key(&m,14,SDL_SCANCODE_F9));
+    assert(!a2_menu_model_key(&m,14,SDL_SCANCODE_ESCAPE));
+    assert(a2_menu_model_key(&m,14,SDL_SCANCODE_C));assert(m.draft.key[13]==0);
+    assert(a2_menu_model_key(&m,14,0));assert(m.draft.key[14]==0);
+    assert(!a2_menu_model_key(&m,1,SDL_SCANCODE_D));
+    A2PadBinding b={A2_BIND_BUTTON,SDL_CONTROLLER_BUTTON_A};
+    assert(a2_menu_model_pad(&m,14,1,b));assert(a2_menu_model_pad(&m,13,0,b));
+    assert(m.draft.pad[14][1].kind==A2_BIND_NONE);
+    assert(!a2_menu_model_finish(&m,A2_MENU_SAVE,&out));assert(!memcmp(&out,&untouched,sizeof out));
+    assert(a2_menu_model_finish(&m,A2_MENU_QUIT,&out));assert(!memcmp(&out,&original,sizeof out));
+    m.draft.voice_language=0;assert(!a2_menu_model_available(&m));
+    assert(!a2_menu_model_finish(&m,A2_MENU_RESUME,&out));
+    m.draft.voice_language=1;assert(a2_menu_model_finish(&m,A2_MENU_RESUME,&out));assert(out.text_language==2);
+    a2_menu_model_init(&m,&a,0,1,1,7,3);assert(!a2_menu_model_restart(&m));
+    assert(a2_menu_model_change(&m,A2_MENU_ANTIALIAS,1));assert(m.draft.antialias==1);
+    assert(!a2_menu_model_restart(&m));assert(a2_menu_model_finish(&m,A2_MENU_RESUME,&out));assert(out.antialias==1);
+    assert(a2_menu_model_change(&m,A2_MENU_ANTIALIAS,-1));assert(m.draft.antialias==0);
+    assert(!a2_menu_model_change(&m,A2_MENU_MODELS,-1));assert(!a2_menu_model_restart(&m));
+    assert(a2_menu_model_finish(&m,A2_MENU_RESUME,&out));assert(!memcmp(&out,&original,sizeof out));
+    assert(a2_menu_model_change(&m,A2_MENU_FILL_SCREEN,1));assert(m.draft.fill_screen==1);
+    assert(a2_menu_model_change(&m,A2_MENU_SKIP_INTRO,1));assert(m.draft.skip_intro==1);
+    assert(a2_menu_model_change(&m,A2_MENU_SUBTITLES,-1));assert(m.draft.subtitles==2);
+    assert(a2_menu_model_change(&m,A2_MENU_SUBTITLES,1));assert(m.draft.subtitles==0);
+    assert(!a2_menu_model_restart(&m));
+    assert(a2_menu_model_change(&m,A2_MENU_ENGLISH_SUBTITLE_LANGUAGE,1));
+    assert(m.draft.english_subtitle_language==1);
+    assert(m.draft.text_language==0&&m.draft.voice_language==1&&m.draft.subtitles==0);
+    assert(!a2_menu_model_restart(&m));
+    assert(a2_menu_model_finish(&m,A2_MENU_RESUME,&out));assert(out.english_subtitle_language==1);
+    assert(a2_menu_model_change(&m,A2_MENU_ENGLISH_SUBTITLE_LANGUAGE,1));assert(m.draft.english_subtitle_language==2);
+    assert(a2_menu_model_change(&m,A2_MENU_ENGLISH_SUBTITLE_LANGUAGE,1));assert(m.draft.english_subtitle_language==0);
+    assert(a2_menu_model_change(&m,A2_MENU_ENGLISH_SUBTITLE_LANGUAGE,-1));assert(m.draft.english_subtitle_language==2);
+    assert(!a2_menu_model_change(&m,A2_MENU_ENGLISH_SUBTITLE_LANGUAGE,0));
+    assert(!a2_menu_model_restart(&m));
+    a2_menu_model_change(&m,A2_MENU_IR,-1);assert(!a2_menu_model_restart(&m));
+    a2_menu_model_change(&m,A2_MENU_IR,-1);a2_menu_model_change(&m,A2_MENU_IR,-1);
+    assert(a2_menu_model_restart(&m));
+    m.draft.master_volume=0;a2_menu_model_change(&m,A2_MENU_VOLUME,-1);assert(m.draft.master_volume==0);
+    m.draft.master_volume=100;a2_menu_model_change(&m,A2_MENU_VOLUME,1);assert(m.draft.master_volume==100);
+    m.draft.pad_deadzone=2048;a2_menu_model_change(&m,A2_MENU_THRESHOLD,-1);assert(m.draft.pad_deadzone==2048);
+    m.draft.pad_deadzone=30000;a2_menu_model_change(&m,A2_MENU_THRESHOLD,1);assert(m.draft.pad_deadzone==30000);
+    m.draft.window_w=0;a2_menu_model_change(&m,A2_MENU_DISPLAY,1);
+    assert(m.draft.window_w==960&&m.draft.window_h==540&&!m.draft.fullscreen);
+    a2_menu_model_change(&m,A2_MENU_DISPLAY,1);assert(m.draft.window_w==1280&&m.draft.window_h==720);
+    a2_menu_model_change(&m,A2_MENU_DISPLAY,1);assert(m.draft.window_w==1920&&m.draft.window_h==1080);
+    a2_menu_model_change(&m,A2_MENU_DISPLAY,1);assert(m.draft.fullscreen);
+    puts("menu model: pass");return 0;
+}

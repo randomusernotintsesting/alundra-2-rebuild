@@ -1,0 +1,131 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 27,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "native-base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "BUILD_TESTING": true
+      }
+    },
+    {
+      "name": "macos-arm64",
+      "displayName": "macOS arm64",
+      "inherits": "native-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "A2_PACKAGE_RESOURCE_ARCHIVE": "${sourceDir}/build/game-data/game.a2r"
+      }
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64 (native UCRT64)",
+      "inherits": "native-base",
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc"
+      },
+      "description": "Target contract for the next platform milestones; portable UI/save integration and target qualification are pending."
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Linux x64 / Steam Deck",
+      "inherits": "native-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc"
+      },
+      "description": "Target contract for the next platform milestones; portable UI/save integration and target qualification are pending."
+    },
+    {
+      "name": "switch-aarch64",
+      "displayName": "Switch homebrew (requires devkitA64 toolchain)",
+      "inherits": "native-base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/Switch.cmake",
+      "cacheVariables": {
+        "A2_PLATFORM_SWITCH": true
+      },
+      "description": "Target contract for the next platform milestones; portable UI/save integration and target qualification are pending."
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-arm64",
+      "configurePreset": "macos-arm64",
+      "jobs": 4
+    },
+    {
+      "name": "windows-x64",
+      "configurePreset": "windows-x64",
+      "jobs": 4
+    },
+    {
+      "name": "linux-x64",
+      "configurePreset": "linux-x64",
+      "jobs": 4
+    },
+    {
+      "name": "switch-aarch64",
+      "configurePreset": "switch-aarch64",
+      "jobs": 4
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "macos-arm64",
+      "configurePreset": "macos-arm64",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 1,
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-x64",
+      "configurePreset": "windows-x64",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 1,
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "linux-x64",
+      "configurePreset": "linux-x64",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 1,
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}
