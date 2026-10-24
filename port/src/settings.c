@@ -17,6 +17,7 @@
 #include "paths.h"
 #ifdef _WIN32
 #include "platform/storage_windows.h"
+#include <SDL_syswm.h>
 #define SDL_setenv a2w_setenv
 #define settings_fopen(path, mode) a2w_fopen(path,L"rb")
 #else
@@ -236,10 +237,41 @@ void settings_save(void) {
 }
 
 /* ---------------- runtime apply ---------------- */
+#ifdef _WIN32
+static void apply_fullscreen_windows(SDL_Window *win) {
+    int display=SDL_GetWindowDisplayIndex(win);
+    SDL_Rect bounds;
+    int have_bounds=display>=0 && SDL_GetDisplayBounds(display,&bounds)==0;
+    SDL_ClearError();
+    int result=SDL_SetWindowFullscreen(win,SDL_WINDOW_FULLSCREEN_DESKTOP);
+    if(result<0 || getenv("A2_TIMING"))
+        fprintf(stderr,"window: fullscreen result=%d flags=0x%x display=%d error=%s\n",
+            result,(unsigned)SDL_GetWindowFlags(win),display,SDL_GetError());
+    if(result<0 || !have_bounds || (SDL_GetWindowFlags(win)&SDL_WINDOW_MINIMIZED))return;
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    RECT rect;
+    if(!SDL_GetWindowWMInfo(win,&info) || info.subsystem!=SDL_SYSWM_WINDOWS ||
+       !GetWindowRect(info.info.win.window,&rect))return;
+    if(getenv("A2_TIMING"))
+        fprintf(stderr,"window: native rect=%ld,%ld-%ld,%ld display bounds=%d,%d %dx%d\n",
+            rect.left,rect.top,rect.right,rect.bottom,bounds.x,bounds.y,bounds.w,bounds.h);
+    if(rect.left==bounds.x && rect.top==bounds.y)return;
+    /* Re-anchor fullscreen without changing SDL's saved windowed position. */
+    if(!SetWindowPos(info.info.win.window,NULL,bounds.x,bounds.y,0,0,
+                    SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE))
+        fprintf(stderr,"window: fullscreen positioning failed: %lu\n",GetLastError());
+}
+#endif
+
 void settings_apply_window(SDL_Window *win, SDL_Renderer *ren) {
     s_win = win; s_ren = ren;
     if (a2s.fullscreen)
+#ifdef _WIN32
+        apply_fullscreen_windows(win);
+#else
         SDL_SetWindowFullscreen(win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+#endif
     else {
         SDL_SetWindowFullscreen(win, 0);
         if (a2s.window_w && a2s.window_h)

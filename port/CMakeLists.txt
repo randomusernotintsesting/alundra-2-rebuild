@@ -1066,6 +1066,9 @@ if(BUILD_TESTING)
     add_test(NAME settings COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_settings_test.py" "$<TARGET_FILE:test_settings>")
     if(WIN32)
+        add_test(NAME settings_window COMMAND test_settings --window)
+        set_tests_properties(settings_window PROPERTIES TIMEOUT 30
+            ENVIRONMENT "SDL_VIDEODRIVER=windows;A2_TIMING=1")
         add_test(NAME memcard COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_memcard_windows.py"
             --binary "$<TARGET_FILE:test_memcard_windows>")
