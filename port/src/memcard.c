@@ -9,7 +9,11 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+#else
 #include <sys/file.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -22,7 +26,13 @@ void psx_deliver_event(uint32_t cls, uint32_t spec);
 static struct Card {
     uint8_t data[CARD_SIZE];
     char path[4096];
-    int lock, present, changed, status;
+#ifdef _WIN32
+    HANDLE lock;
+    A2WTarget target;
+#else
+    int lock;
+#endif
+    int present, changed, status;
 } cards[2];
 static struct File {
     int used, slot, first;
@@ -71,6 +81,12 @@ static void blank(uint8_t *data) {
     memcpy(data+63*128,data,128);
 }
 static int store(struct Card *c, const uint8_t *data) {
+#ifdef _WIN32
+    int result=a2w_publish(c->target.dir,c->target.name,data,CARD_SIZE,!c->present);
+    if(!result)return 0;
+    if(result==2)fprintf(stderr,"memcard: image published, post-publication sync/close failed\n");
+    memcpy(c->data,data,CARD_SIZE);return 1;
+#else
     char tmp[4160];
     if(snprintf(tmp,sizeof tmp,"%s.tmp.XXXXXX",c->path)>=(int)sizeof tmp) return 0;
     int fd=mkstemp(tmp); if(fd<0) return 0;
@@ -90,15 +106,30 @@ static int store(struct Card *c, const uint8_t *data) {
     char parent[4096]; strcpy(parent,c->path); char *slash=strrchr(parent,'/');
     if(slash) { *slash=0; fd=open(parent,O_RDONLY); if(fd>=0) { (void)fsync(fd); close(fd); } }
     return 1;
+#endif
 }
 void memcard_shutdown(void) {
+#ifdef _WIN32
+    if(initialized)for(int i=0;i<2;i++){
+        if(cards[i].lock!=INVALID_HANDLE_VALUE)CloseHandle(cards[i].lock);
+        a2w_directory_close(cards[i].target.dir);
+    }
+#else
     if(initialized) for(int i=0;i<2;i++) if(cards[i].lock>=0) close(cards[i].lock);
+#endif
     memset(cards,0,sizeof cards); memset(files,0,sizeof files);
     initialized=started=ignore_change=0; search.next=16;
 }
-int memcard_init(const char *directory) {
-    memcard_shutdown(); initialized=1; cards[0].lock=cards[1].lock=-1;
+static int initialize(const char *directory) {
+    memcard_shutdown(); initialized=1;
+#ifdef _WIN32
+    cards[0].lock=cards[1].lock=INVALID_HANDLE_VALUE;
+#else
+    cards[0].lock=cards[1].lock=-1;
+#endif
+#ifndef _WIN32
     if(!directory) directory=getenv("A2_USER_DIR");
+#endif
     if(!directory || !*directory) return 0;
     int all=1;
     for(int i=0;i<2;i++) {
@@ -106,6 +137,16 @@ int memcard_init(const char *directory) {
         char lockpath[4096];
         if(snprintf(c->path,sizeof c->path,"%s/memcard%d.mcr",directory,i+1)>=(int)sizeof c->path ||
            snprintf(lockpath,sizeof lockpath,"%s/memcard%d.lock",directory,i+1)>=(int)sizeof lockpath) { all=0; continue; }
+#ifdef _WIN32
+        if(!a2w_target(c->path,&c->target))goto unavailable;
+        char lockname[32];snprintf(lockname,sizeof lockname,"memcard%d.lock",i+1);
+        c->lock=a2w_lock(c->target.dir,lockname);
+        if(c->lock==INVALID_HANDLE_VALUE)goto unavailable;
+        int exists=a2w_exists(c->target.dir,c->target.name);
+        if(exists<0)goto unavailable;
+        if(!exists){uint8_t data[CARD_SIZE];blank(data);if(!store(c,data))goto unavailable;}
+        else if(!a2w_read(c->target.dir,c->target.name,c->data,CARD_SIZE))goto unavailable;
+#else
         c->lock=open(lockpath,O_RDWR|O_CREAT|O_NOFOLLOW,0600);
         if(c->lock<0 || flock(c->lock,LOCK_EX|LOCK_NB)!=0) goto unavailable;
         int fd=open(c->path,O_RDONLY|O_NOFOLLOW);
@@ -123,12 +164,27 @@ int memcard_init(const char *directory) {
             }
             close(fd); if(!ok) goto unavailable;
         }
+#endif
         c->present=1; c->status=1; continue;
 unavailable:
         fprintf(stderr,"memcard: slot %d unavailable: %s (existing image preserved)\n",i+1,c->path);
-        if(c->lock>=0) { close(c->lock); c->lock=-1; } all=0;
+#ifdef _WIN32
+        if(c->lock!=INVALID_HANDLE_VALUE){CloseHandle(c->lock);c->lock=INVALID_HANDLE_VALUE;}
+        a2w_directory_close(c->target.dir);c->target.dir=NULL;
+#else
+        if(c->lock>=0) { close(c->lock); c->lock=-1; }
+#endif
+        all=0;
     }
     return all;
+}
+int memcard_init(const char *directory) {
+#ifdef _WIN32
+    char *env=directory?NULL:a2w_getenv(L"A2_USER_DIR");
+    int ok=initialize(directory?directory:env);free(env);return ok;
+#else
+    return initialize(directory);
+#endif
 }
 static int slot_for(uint32_t port) { return port==0 ? 0 : port==0x10 ? 1 : -1; }
 static int ram(uint32_t addr,uint32_t len) {

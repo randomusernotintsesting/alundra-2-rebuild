@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 A2Phase a2_phase_switch_at(A2PhaseAccounting *state, A2Phase next,
                          A2PhaseStamp now) {
@@ -58,27 +62,56 @@ static const char *const names[A2_PHASE_COUNT] = {
     "wait_coarse", "wait_tail", "diag"
 };
 
-static int read_clock(clockid_t id, uint64_t *result) {
+typedef enum { A2_CLOCK_WALL, A2_CLOCK_THREAD, A2_CLOCK_PROCESS } A2Clock;
+
+static int read_clock(A2Clock id, uint64_t *result) {
+#ifdef _WIN32
+    if (id == A2_CLOCK_WALL) {
+        LARGE_INTEGER counter, frequency;
+        if (!QueryPerformanceCounter(&counter) || !QueryPerformanceFrequency(&frequency) ||
+            counter.QuadPart < 0 || frequency.QuadPart <= 0) goto unavailable;
+        uint64_t ticks = (uint64_t)counter.QuadPart, hz = (uint64_t)frequency.QuadPart;
+        *result = ticks / hz * 1000000000u +
+                  (uint64_t)((long double)(ticks % hz) * 1000000000u / hz);
+        return 1;
+    }
+    FILETIME created, exited, kernel, user;
+    BOOL ok = id == A2_CLOCK_THREAD ?
+        GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user) :
+        GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
+    if (!ok) goto unavailable;
+    uint64_t kernel_ticks = ((uint64_t)kernel.dwHighDateTime << 32) | kernel.dwLowDateTime;
+    uint64_t user_ticks = ((uint64_t)user.dwHighDateTime << 32) | user.dwLowDateTime;
+    *result = (kernel_ticks + user_ticks) * 100u;
+    return 1;
+unavailable:
+    fprintf(stderr, "phasestat: required Windows clock unavailable; timing disabled\n");
+    a2_phase_enabled = 0;
+    return 0;
+#else
+    clockid_t clock = id == A2_CLOCK_WALL ? CLOCK_MONOTONIC :
+                      id == A2_CLOCK_THREAD ? CLOCK_THREAD_CPUTIME_ID : CLOCK_PROCESS_CPUTIME_ID;
     struct timespec stamp;
-    if (clock_gettime(id, &stamp)) {
+    if (clock_gettime(clock, &stamp)) {
         fprintf(stderr, "phasestat: required clock unavailable; timing disabled\n");
         a2_phase_enabled = 0;
         return 0;
     }
     *result = (uint64_t)stamp.tv_sec * 1000000000u + (uint64_t)stamp.tv_nsec;
     return 1;
+#endif
 }
 
 static int read_stamp(A2PhaseStamp *stamp) {
-    return read_clock(CLOCK_MONOTONIC, &stamp->wall_ns) &&
-           read_clock(CLOCK_THREAD_CPUTIME_ID, &stamp->cpu_ns);
+    return read_clock(A2_CLOCK_WALL, &stamp->wall_ns) &&
+           read_clock(A2_CLOCK_THREAD, &stamp->cpu_ns);
 }
 
 void a2_phase_init(void) {
     a2_phase_enabled = getenv("A2_TIMING") != NULL;
     if (!a2_phase_enabled) return;
     A2PhaseStamp now;
-    if (!read_stamp(&now) || !read_clock(CLOCK_PROCESS_CPUTIME_ID, &process_last))
+    if (!read_stamp(&now) || !read_clock(A2_CLOCK_PROCESS, &process_last))
         return;
     memset(&runtime, 0, sizeof runtime);
     memset(totals, 0, sizeof totals);
@@ -124,7 +157,7 @@ void a2_phase_frame(uint32_t frame) {
     if (!a2_phase_enabled) return;
     A2PhaseStamp now;
     uint64_t process_now;
-    if (!read_stamp(&now) || !read_clock(CLOCK_PROCESS_CPUTIME_ID, &process_now))
+    if (!read_stamp(&now) || !read_clock(A2_CLOCK_PROCESS, &process_now))
         return;
     a2_phase_switch_at(&runtime, A2_PHASE_DIAG, now);
     uint64_t wall = 0, cpu = 0;

@@ -1,6 +1,9 @@
 #ifndef A2_TEXT_RASTER_H
 #define A2_TEXT_RASTER_H
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef struct { uint32_t *pixels; int width,height; double advance; unsigned missing_glyphs; } A2TextRaster;
 /* UTF-8, logical pixel size and maximum width. Returns straight-alpha ARGB8888
  * white ink, row zero at top; caller owns pixels. Invalid UTF-8/ranges fail and
@@ -13,4 +16,7 @@ int a2_image_raster_load(const char *utf8_path,A2TextRaster *out);
 /* Diagnostic export, exact opaque ARGB input; no UI side effects. */
 int a2_image_raster_write_png(const char *utf8_path,const uint32_t *pixels,int width,int height,int pitch);
 void a2_text_raster_free(A2TextRaster *raster);
+#ifdef __cplusplus
+}
+#endif
 #endif

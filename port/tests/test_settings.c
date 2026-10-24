@@ -1,3 +1,4 @@
+#define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <assert.h>
 #include <stdio.h>
@@ -7,6 +8,29 @@
 #include <unistd.h>
 #include "settings.h"
 #include "paths.h"
+#ifdef _WIN32
+#include "platform/storage_windows.h"
+#include <SDL_syswm.h>
+#include <direct.h>
+static FILE *utf8_fopen(const char *path,const char *mode) {
+    wchar_t *p=a2w_utf16(path),*m=a2w_utf16(mode);
+    FILE *f=p&&m?_wfopen(p,m):NULL;free(p);free(m);return f;
+}
+static int utf8_rename(const char *from,const char *to) {
+    wchar_t *a=a2w_utf16(from),*b=a2w_utf16(to);
+    int r=a&&b?_wrename(a,b):-1;free(a);free(b);return r;
+}
+static int utf8_unlink(const char *path) {wchar_t *p=a2w_utf16(path);int r=p?_wunlink(p):-1;free(p);return r;}
+static int utf8_mkdir(const char *path,int mode) {(void)mode;wchar_t *p=a2w_utf16(path);int r=p?_wmkdir(p):-1;free(p);return r;}
+static int utf8_rmdir(const char *path) {wchar_t *p=a2w_utf16(path);int r=p?_wrmdir(p):-1;free(p);return r;}
+#define fopen utf8_fopen
+#define rename utf8_rename
+#define unlink utf8_unlink
+#define mkdir utf8_mkdir
+#define rmdir utf8_rmdir
+#define SDL_setenv a2w_setenv
+#define unsetenv(name) a2w_setenv(name,NULL,1)
+#endif
 
 int gpu_frames;
 static int actual_ir=3;
@@ -44,7 +68,107 @@ static void change_ir(int delta) {
 #endif
 }
 
-int main(void) {
+#ifdef _WIN32
+static RECT window_rect(SDL_Window *win) {
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    assert(SDL_GetWindowWMInfo(win, &info));
+    assert(info.subsystem == SDL_SYSWM_WINDOWS);
+    RECT rect;
+    assert(GetWindowRect(info.info.win.window, &rect));
+    return rect;
+}
+
+static void window_frames(SDL_Renderer *ren) {
+    for (int i=0;i<8;i++) {
+        SDL_Event event;
+        while(SDL_PollEvent(&event)) {}
+        assert(SDL_SetRenderDrawColor(ren,0,0,0,255)==0);
+        assert(SDL_RenderClear(ren)==0);
+        SDL_RenderPresent(ren);
+        SDL_Delay(10);
+    }
+}
+
+static void fullscreen_rect(SDL_Window *win,SDL_Rect bounds) {
+    RECT rect=window_rect(win);
+    fprintf(stderr,"window: flags=0x%x rect=%ld,%ld-%ld,%ld display=%d,%d %dx%d\n",
+        (unsigned)SDL_GetWindowFlags(win),rect.left,rect.top,rect.right,rect.bottom,
+        bounds.x,bounds.y,bounds.w,bounds.h);
+    assert((SDL_GetWindowFlags(win)&SDL_WINDOW_FULLSCREEN_DESKTOP)==SDL_WINDOW_FULLSCREEN_DESKTOP);
+    assert(rect.left==bounds.x && rect.top==bounds.y);
+    assert(rect.right==bounds.x+bounds.w && rect.bottom==bounds.y+bounds.h);
+}
+
+static int window_transitions(void) {
+    assert(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER)==0);
+    assert(!strcmp(SDL_GetCurrentVideoDriver(),"windows"));
+    SDL_Window *win=SDL_CreateWindow("settings window regression",
+        SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,720,
+        SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_RESIZABLE);
+    assert(win);
+    SDL_Renderer *ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_PRESENTVSYNC);
+    assert(ren);
+    SDL_RendererInfo renderer;
+    assert(SDL_GetRendererInfo(ren,&renderer)==0);
+    fprintf(stderr,"window renderer=%s flags=0x%x\n",renderer.name,(unsigned)renderer.flags);
+    SDL_Rect bounds;
+    assert(SDL_GetDisplayBounds(SDL_GetWindowDisplayIndex(win),&bounds)==0);
+    a2s.fullscreen=1;
+    settings_apply_window(win,ren);
+    window_frames(ren);
+    fullscreen_rect(win,bounds);
+    for(int i=0;i<2;i++) {
+        a2s.fullscreen=0;a2s.window_w=960;a2s.window_h=540;
+        settings_apply_window(win,ren);
+        window_frames(ren);
+        RECT restored=window_rect(win);
+        int w,h;
+        SDL_GetWindowSize(win,&w,&h);
+        assert(w==960 && h==540);
+        assert(!(SDL_GetWindowFlags(win)&SDL_WINDOW_FULLSCREEN));
+        a2s.fullscreen=1;
+        SDL_ClearError();
+        settings_apply_window(win,ren);
+        fprintf(stderr,"fullscreen apply error=%s\n",SDL_GetError());
+        window_frames(ren);
+        fullscreen_rect(win,bounds);
+        settings_apply_window(win,ren);
+        window_frames(ren);
+        fullscreen_rect(win,bounds);
+        SDL_SysWMinfo info;
+        SDL_VERSION(&info.version);
+        assert(SDL_GetWindowWMInfo(win,&info));
+        /* Native placement can change while SDL still reports fullscreen. */
+        assert(SetWindowPos(info.info.win.window,NULL,bounds.x+23,bounds.y+31,0,0,
+            SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE));
+        settings_apply_window(win,ren);
+        window_frames(ren);
+        fullscreen_rect(win,bounds);
+        a2s.fullscreen=0;
+        settings_apply_window(win,ren);
+        window_frames(ren);
+        RECT after=window_rect(win);
+        assert(after.left==restored.left && after.top==restored.top);
+        assert(after.right==restored.right && after.bottom==restored.bottom);
+    }
+    a2_input_shutdown();
+    SDL_DestroyRenderer(ren);SDL_DestroyWindow(win);SDL_Quit();
+    puts("settings window: repeated fullscreen bounds and windowed restore passed");
+    return 0;
+}
+#endif
+
+int main(int argc,char **argv) {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR);
+#else
+    (void)argc;(void)argv;
+#endif
+    SDL_SetMainReady();
+#ifdef _WIN32
+    if(argc==2 && !strcmp(argv[1],"--window"))return window_transitions();
+#endif
     assert(SDL_getenv("A2_USER_DIR")); /* runner owns the temporary directory */
     (void)a2_paths_init(NULL, NULL);
     assert(a2_paths.settings[0]);

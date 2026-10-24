@@ -1,0 +1,37 @@
+src/save_browser_model.c:207:56: error: 'O_DIRECTORY' undeclared (first use in this function)
+src/native_save_store.c:69:54: error: 'NAME_MAX' undeclared here (not in a function)
+src/save_browser_model.c:207:70: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/native_save_store.c:81:41: error: 'O_DIRECTORY' undeclared (first use in this function)
+src/save_browser_model.c:207:83: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:81:55: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/save_browser_model.c:208:46: error: implicit declaration of function 'fdopendir'; did you mean '_wopendir'? [-Wimplicit-function-declaration]
+src/save_browser_model.c:208:44: error: pointer/integer type mismatch in conditional expression [-Wint-conversion]
+src/native_save_store.c:81:68: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:87:14: error: implicit declaration of function 'openat'; did you mean 'open64'? [-Wimplicit-function-declaration]
+src/save_browser_model.c:259:54: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:87:43: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/native_save_store.c:87:56: error: 'O_NONBLOCK' undeclared (first use in this function)
+src/native_save_store.c:87:69: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:153:55: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/native_save_store.c:153:68: error: 'O_NONBLOCK' undeclared (first use in this function)
+src/native_save_store.c:153:81: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:158:9: error: implicit declaration of function 'flock'; did you mean 'clock'? [-Wimplicit-function-declaration]
+src/native_save_store.c:158:21: error: 'LOCK_EX' undeclared (first use in this function)
+src/native_save_store.c:158:31: error: 'LOCK_NB' undeclared (first use in this function)
+src/native_save_store.c:159:18: error: implicit declaration of function 'fstatat'; did you mean 'fstat64'? [-Wimplicit-function-declaration]
+src/native_save_store.c:159:46: error: 'AT_SYMLINK_NOFOLLOW' undeclared (first use in this function)
+src/native_save_store.c:204:9: error: implicit declaration of function 'fsync' [-Wimplicit-function-declaration]
+src/native_save_store.c:214:13: error: implicit declaration of function 'linkat' [-Wimplicit-function-declaration]
+src/native_save_store.c:217:13: error: implicit declaration of function 'unlinkat'; did you mean 'unlink'? [-Wimplicit-function-declaration]
+src/native_save_store.c:222:16: error: implicit declaration of function 'renameat'; did you mean 'rename'? [-Wimplicit-function-declaration]
+src/native_save_store.c:276:50: error: 'O_DIRECTORY' undeclared (first use in this function)
+src/native_save_store.c:276:64: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/native_save_store.c:276:77: error: 'O_CLOEXEC' undeclared (first use in this function)
+src/native_save_store.c:280:9: error: too many arguments to function 'mkdir'; expected 1, have 2
+src/native_save_store.c:291:44: error: 'AT_SYMLINK_NOFOLLOW' undeclared (first use in this function)
+src/memcard.c:83:14: error: implicit declaration of function 'fsync' [-Wimplicit-function-declaration]
+src/memcard.c:109:46: error: 'O_NOFOLLOW' undeclared (first use in this function)
+src/memcard.c:110:25: error: implicit declaration of function 'flock' [-Wimplicit-function-declaration]
+src/memcard.c:110:39: error: 'LOCK_EX' undeclared (first use in this function)
+src/memcard.c:110:47: error: 'LOCK_NB' undeclared (first use in this function)
+src/paths.c:29:13: error: too many arguments to function 'mkdir'; expected 1, have 2
