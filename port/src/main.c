@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define SDL_MAIN_HANDLED
+#endif
 #include <SDL.h>
 #include "psx_rt.h"
 #include "cd_hle.h"
@@ -1483,6 +1486,9 @@ static int atlas(const char *root, const char *shot) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    SDL_SetMainReady();
+#endif
     const char *root = NULL;
     const char *image = NULL, *shot = NULL;
     int do_atlas = 0, check = 0;

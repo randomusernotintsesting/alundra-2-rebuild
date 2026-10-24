@@ -1,7 +1,14 @@
 /* Catches inclusive/double counting and treating time off CPU as CPU work. */
+#define A2_PHASE_TIMING 1
 #include "phase_timing.h"
 #include <assert.h>
 #include <stdio.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 int main(void) {
     A2PhaseAccounting state = {0};
@@ -89,6 +96,17 @@ int main(void) {
     assert(command.calls == 2);
     assert(command.total.wall_ns == 60 && command.total.cpu_ns == 35);
     assert(command.maximum.wall_ns == 50 && command.maximum.cpu_ns == 30);
+    A2PhaseStamp before = a2_phase_clock();
+#ifdef _WIN32
+    Sleep(100);
+#else
+    struct timespec pause = {0, 100000000};
+    nanosleep(&pause, NULL);
+#endif
+    A2PhaseStamp after = a2_phase_clock();
+    assert(after.wall_ns >= before.wall_ns + 50000000);
+    assert(after.cpu_ns >= before.cpu_ns);
+    assert(after.cpu_ns - before.cpu_ns < after.wall_ns - before.wall_ns);
     puts("phase timing: exclusive scopes, waits, rollover and command totals passed");
     return 0;
 }
