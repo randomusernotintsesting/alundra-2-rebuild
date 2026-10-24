@@ -17,8 +17,8 @@ void a2_host_ui_set_context(SDL_Window *window, SDL_Renderer *renderer,
     for (unsigned i=0; base && i<sizeof candidates/sizeof candidates[0]; i++) {
         int length=snprintf(logo,sizeof logo,"%s%s",base,candidates[i]);
         if (length<0 || length>=(int)sizeof logo) { logo[0]=0; continue; }
-        FILE *file=fopen(logo,"rb");
-        if (file) { fclose(file); break; }
+        SDL_RWops *file=SDL_RWFromFile(logo,"rb");
+        if (file) { SDL_RWclose(file); break; }
         logo[0]=0;
     }
     SDL_free(base);
