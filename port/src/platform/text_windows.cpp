@@ -127,9 +127,9 @@ static int rasterize(const char *s, double size, int width, int bold, bool title
     result.pixels = static_cast<uint32_t *>(std::malloc(static_cast<size_t>(result.width) * result.height * 4));
     if (!result.pixels) return 0;
     for (int y = 0; y < result.height; ++y) {
-        int row = dib.dsBmih.biHeight < 0 ? y : result.height - y - 1;
+        /* DirectWrite GetMemoryDC guarantees a 32-bit top-down DIB. */
         const unsigned char *src = static_cast<const unsigned char *>(dib.dsBm.bmBits) +
-            static_cast<size_t>(row) * dib.dsBm.bmWidthBytes;
+            static_cast<size_t>(y) * dib.dsBm.bmWidthBytes;
         for (int x = 0; x < result.width; ++x) {
             unsigned alpha = src[x * 4];
             if (src[x * 4 + 1] > alpha) alpha = src[x * 4 + 1];

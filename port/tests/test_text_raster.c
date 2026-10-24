@@ -23,6 +23,30 @@ static void title(const char *s) {
         assert(ink>100);a2_text_raster_free(&r);
     }
 }
+#ifdef _WIN32
+static void orientation(void) {
+    for(int heading=0;heading<2;heading++)for(int bold=0;bold<2;bold++) {
+        A2TextRaster r={0};
+        assert((heading?a2_text_rasterize_title:a2_text_rasterize)("F",72,0,bold,&r));
+        int first=r.height,last=-1;
+        for(int y=0;y<r.height;y++)for(int x=0;x<r.width;x++)
+            if((r.pixels[y*r.width+x]>>24)>16) {
+                if(y<first)first=y;
+                if(y>last)last=y;
+            }
+        assert(last>first);
+        int band=(last-first+1)/3;
+        unsigned top=0,bottom=0;
+        for(int y=0;y<band;y++)for(int x=0;x<r.width;x++) {
+            top+=(r.pixels[(first+y)*r.width+x]>>24)>16;
+            bottom+=(r.pixels[(last-y)*r.width+x]>>24)>16;
+        }
+        fprintf(stderr,"text orientation: heading=%d bold=%d top=%u bottom=%u\n",heading,bold,top,bottom);
+        assert(top>bottom);
+        a2_text_raster_free(&r);
+    }
+}
+#endif
 static void image_roundtrip(void) {
     const uint32_t pixels[]={0xffff0000,0xff00ff00,0xff0000ff,0xffffffff};
     A2TextRaster image={0}, old=image;
@@ -48,6 +72,9 @@ static void image_roundtrip(void) {
 #endif
 }
 int main(void) {
+#ifdef _WIN32
+    orientation();
+#endif
     title("Сохранить игру");title("ゲームを保存");title("Save game");
     check("Загрузка",0);check("設定 日本語",0);check("Resume game",0);
     check("Язык и переход между 1× и HD применятся при следующем запуске.",260);
