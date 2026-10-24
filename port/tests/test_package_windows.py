@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -47,6 +49,20 @@ class PackageWindowsTests(unittest.TestCase):
         with zipfile.ZipFile(self.output) as archive:
             self.assertEqual(set(archive.namelist()), {"alundra2.exe", "SDL2.dll", "libwinpthread-1.dll",
                              "third-party-notices/COPYING-SDL.txt", "BUILD-MANIFEST.json", "README-Windows.txt"})
+            manifest = json.loads(archive.read("BUILD-MANIFEST.json"))
+            self.assertEqual(manifest["source_revision"], "a" * 40)
+            self.assertEqual(manifest["imports"], self.dependencies)
+            for name, digest in manifest["sha256"].items():
+                self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), digest)
+
+    def test_raced_prior_evidence_not_deleted(self):
+        def create_competing_output(*args, **kwargs):
+            self.output.write_bytes(b"competing evidence")
+            raise FileExistsError(self.output)
+        with patch.object(module.zipfile, "ZipFile", side_effect=create_competing_output):
+            with self.assertRaises(FileExistsError):
+                self.package()
+        self.assertEqual(self.output.read_bytes(), b"competing evidence")
 
     def test_missing_transitive_dependency_fails_before_zip(self):
         with self.assertRaisesRegex(ValueError, "missing non-system dependency"):
